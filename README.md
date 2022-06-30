@@ -63,6 +63,8 @@ the script performs the following command to get the BTRFS status on a particula
 
 the script also performs the command ```cat /proc/mdstat``` to get the current RAID status. if the string "resync" is found, then the RAID sync activity is in progress
 
+An email with the status of scrubbing is only sent if scrubbing is active. 
+
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 
