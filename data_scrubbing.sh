@@ -7,8 +7,8 @@ if ! mkdir /volume1/web/logging/notifications/data_scrubbing.lock; then
 fi
 trap 'rm -rf /volume1/web/logging/notifications/data_scrubbing.lock' EXIT #remove the lockdir on exit
 
-email_address="email@email.com.com"
-from_email_address="email@email.com.com"
+email_address="wallacebrf@hotmail.com"
+from_email_address="admin@wallacebrf.us"
 counter=0
 
 #setup email notification details in beginning of file (from, to, and subject lines) so we can send the results of the script to an email address 
