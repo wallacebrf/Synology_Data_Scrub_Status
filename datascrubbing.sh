@@ -1,16 +1,22 @@
 #!/bin/bash
-#Version 2.0 3/31/2023
+#Version 2.1 4/1/2023
 #By Brian Wallace
 #credit for the floating point math here: https://phoenixnap.com/kb/bash-math
 #credit for progress bar: Author : Teddy Skarin #https://github.com/fearside/ProgressBar/blob/master/progressbar.sh
 #credit for the function to display total time in a nice format: user: Stéphane Gimenez  https://unix.stackexchange.com/questions/27013/displaying-seconds-as-days-hours-mins-seconds
 
 
+#Change History:
+# 2.1 - corrected the "overall" progress bar to properly show up in emails as the " |& tee -a "$log_file_location/$log_file_name"" was missed on the progress bar line
+
+# 2.0 - complete rewrite of script to make output more user friendly and add BTRFS % complete, overall scrub $ complete, overall scrub run time and more
+
+
 ##############################################################
 #USER VARIABLES
 ##############################################################
-to_email_address="email@email.com"
-from_email_address="email@email.com"
+to_email_address="wallacebrf@hotmail.com"
+from_email_address="admin@wallacebrf.us"
 subject="NAS Name - Disk Scrubbing Status"
 use_mail_plus=0
 log_file_location="/volume1/web/logging/notifications"
@@ -473,7 +479,7 @@ if [ $scrub_active -eq 1 ]; then
 		echo "Devices Completed: $script_percent_tracking" |& tee -a "$log_file_location/$log_file_name"
 	fi
 	
-	ProgressBar ${percent_scrubbed} 100
+	ProgressBar ${percent_scrubbed} 100 |& tee -a "$log_file_location/$log_file_name"
 	echo -e "\nTotal Scrubbing Runtime: $runtime" |& tee -a "$log_file_location/$log_file_name"
 
 	if [ $enable_email_notifications -eq 1 ]; then
@@ -587,3 +593,74 @@ fi
 #
 #		Overall Scrub Percent: [###################################-----] 88%
 #		Total Scrubbing Runtime: 11 hours 1 minutes and 4 seconds
+#########################################
+#	no active scrubbing
+#	one storage pool, RAID5, with three volumes
+#	volume1 = BTRFS 
+#	volume2 = EXT4
+#	volume3 = BTRFS
+########################################
+#
+#	---------------------------------
+#	RAID SCRUBBING DETAILS
+#	---------------------------------
+#
+#	RAID device "md2" is not performing RAID scrubbing
+#
+#
+#	---------------------------------
+#	BTRFS SCRUBBING DETAILS
+#	---------------------------------
+#
+#	"/volume1" is not performing BTRFS scrubbing
+#
+#
+#	"/volume3" is not performing BTRFS scrubbing
+#
+#
+#########################################
+#	active BTRFS scrubbing
+#	one storage pool, RAID5, with three volumes
+#	volume1 = BTRFS 
+#	volume2 = EXT4
+#	volume3 = BTRFS
+########################################
+#	---------------------------------
+#	RAID SCRUBBING DETAILS
+#	---------------------------------
+#
+#	RAID device "md2" is not performing RAID scrubbing
+#
+#
+#	---------------------------------
+#	BTRFS SCRUBBING DETAILS
+#	---------------------------------
+#
+#	"/volume1" BTRFS scrubbing Active.
+#
+#
+#	BTRFS Scrubbing Date Started: Fri Mar 31 2023, 12:35:35
+#	BTRFS Scrubbing Duration:  00:10:30
+#	BTRFS Scrubbing Device Name:  /dev/mapper/cachedev_0
+#	BTRFS Scrubbing Data Scrubbed [Bytes]:  319662817280
+#	BTRFS Scrubbing Volume Size [Bytes]:   5326833188864
+#	BTRFS Scrubbing Percent Complete:  6.00%
+#	BTRFS Scrubbing Errors: 0
+#
+#
+#	"/volume3" is not performing BTRFS scrubbing
+#
+#
+#	---------------------------------
+#	OVERALL SCRUBBING DETAILS
+#	---------------------------------
+#
+#	Number of RAID Devices: 1
+#	Number of BTRFS Devices: 2
+#	Total Scrubbing Tasks Required: 3
+#	Scrub Processes Complete: 0
+#	Devices Completed: NONE
+#
+#	Overall Scrub Percent: [----------------------------------------] 2%
+#	Total Scrubbing Runtime: 11 minutes and 21 seconds
+#
