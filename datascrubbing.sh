@@ -1,5 +1,5 @@
 #!/bin/bash
-#Version 2.2 4/1/2023
+#Version 2.3 4/2/2023
 #By Brian Wallace
 
 ##############################################################
@@ -173,6 +173,26 @@ function date_diff(){
 	echo "$days"
 }
 
+function time_diff(){
+	local old=${1}
+	local new=${2}
+	local old_hour=0
+	local old_min=0
+	local old_sec=0
+	local hour=0
+	local min=0
+	local sec=0
+
+	IFS=: read old_hour old_min old_sec <<< "$old"
+	IFS=: read hour min sec <<< "$new"
+
+	# convert the date "1970-01-01 hour:min:00" in seconds from Unix EPOCH time
+	local sec_old=$(date -d "1970-01-01 $old_hour:$old_min:00" +%s)
+	local sec_new=$(date -d "1970-01-01 $hour:$min:00" +%s)
+
+	echo "$(( (sec_new - sec_old) / 60))"
+}
+
 echo "" |& tee "$log_file_location/$log_file_name" #create the file and remove any previous data
 
 ###############################################
@@ -254,7 +274,8 @@ for xx in "${!btrfs_volumes[@]}"; do
 		#	11: 00:17:25
 		
 		date_diff_value=$(date_diff "${explode[4]} ${explode[5]} ${explode[7]}" "$(date "+%b") $(date "+%d") $(date "+%Y")") #calculate the number of days between the current date and when the volume finished
-		
+		time_diff_value=$(time_diff "${explode[6]}" "$(date "+%T")") #calculate the number of minuets between the current date and when the volume finished
+				
 		volume_details=$(btrfs scrub status -d -R $volume_number | grep "error")
 		explode=(`echo $volume_details | sed 's/ /\n/g'`) #explode on white space
 		#returns the following array
@@ -288,10 +309,12 @@ for xx in "${!btrfs_volumes[@]}"; do
 			echo "     --> Unverified Errors: ${explode[13]}" |& tee -a "$log_file_location/$log_file_name"
 			echo -e "     --> Corrected Errors: ${explode[15]}\n\n\n" |& tee -a "$log_file_location/$log_file_name"
 		fi
-		
+
 ########################################################################################
-		if [ $date_diff_value -gt 0 ]; then #make sure the last scrub was at least 1 day ago
-			if [ $date_diff_value -le 25 ]; then #if the volume finished 25 or fewer days ago. 25 days should be more than enough to complete scrubbing on most systems with multiple storage pools like systems with 12 or even 24 or more drives. Also, scrubbing should only be run at most once per month 
+		if [ $date_diff_value -le 1 ]; then #make sure the last scrub was was done less than or equial to 1 day (1 rather than 0 in case the day rolls over at midnight)
+			
+			if [ $time_diff_value -le 61 ]; then #if the volume finished 61 or fewer mins ago. since script is run every hour this will catch any scrubs that finished really fast between executions
+				
 				#to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
 				#check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
 				if [ -r "$log_file_location/script_percent_tracking.txt" ]; then  #the file will only exist if a scrub is still active
@@ -303,6 +326,9 @@ for xx in "${!btrfs_volumes[@]}"; do
 						echo -n ",$volume_number" >> "$log_file_location/script_percent_tracking.txt"
 						script_percent_tracking=$script_percent_tracking",$volume_number"
 					fi
+				else
+					echo -n "$volume_number" > "$log_file_location/script_percent_tracking.txt"
+					script_percent_tracking=$script_percent_tracking"$volume_number"
 				fi
 			fi
 		fi
