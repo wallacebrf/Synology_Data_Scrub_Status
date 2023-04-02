@@ -76,7 +76,7 @@ An email with the status of scrubbing is only sent if scrubbing is active. The e
 
 ```
 ########################################
-#EXAMPLE SCRIPT OUTPUTS
+#EXAMPLE SCRIPT EMAIL NOTIFICATIONS
 ########################################
 
 
