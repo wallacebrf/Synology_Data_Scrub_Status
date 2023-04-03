@@ -15,7 +15,7 @@
 <h3 align="center">Synology Data Scrubbing (Raid Sync and BTRFS Scrubbing) + Email Notifications on Status</h3>
 
   <p align="center">
-    This project is comprised of a shell script that is configured in Synology Task Scheduler to run once per hour. The script performs commands to determine the RAID syncing status and BTRFS file system scrubbing status. If the status is active an email is sent with that current status. The script will also send email notifications if other RAID activity is occuring such as resyncing during RAID rebuilds, RAID changes (SHR1 to SHR migrations for example), or RAID array creations. 
+    This project is comprised of a shell script that is configured in Synology Task Scheduler to run once per hour. The script performs commands to determine the RAID syncing status and BTRFS file system scrubbing status. If the status is active an email is sent with that current status. The script will also send email notifications if other RAID activity is occurring such as resyncing during RAID rebuilds, RAID changes (SHR1 to SHR migrations for example), or RAID array creations. 
     <br />
     <a href="https://github.com/wallacebrf/Synology_Data_Scrub_Status"><strong>Explore the docs »</strong></a>
     <br />
@@ -78,6 +78,8 @@ NOTE: per Synology ```Data scrubbing is only supported on BTRFS volumes or stora
 Article here: https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_data_scrubbing?version=7
 
 Due to this, even though many RAID configurations are available on Synology (https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_what_is_raid?version=7), several types like RAID0, RAID1, RAID10, JOB, and finally Basic, do not support scrubbing and so will be skipped by DSM's scheduled scrubs. This script takes this into account and will mark a RAID device as unsupported, for example ```RAID device "md3" [ Raid Type: raid1 ] does not support RAID scrubbing```
+
+Also note when using SHR or SHR2: Depending on the size of the different disks used in SHR, DSM will automatically create RAID5/6 (depending on SHR level) and will  create RAID1 or RAID10 elements [depending on SHR level]. For example, in a test system I have been developing this script on, I had 7.3, 10.9, and 16.4 TB drives in a 18.2 TB SHR array. DSM created this by making a RAID5 array using 7.3TB from each drive giving me 14.6TB of space. The remainder of the 18.2TB array was made by creating a RAID1 [Mirror] array using 3.6TB on the 10.9TB drive and 3.6TB on the 16.4TB drive. This resulted in a 14.6 + 3.6 = 18.2TB array. Due to this, when running this script on this particular SHR array, the script will find both the RAID5 and RAID1 arrays, but will mark the RAID1 array as unsupported due to DSM skipping it as part of scheduled scrubs. 
 
 
 ```
