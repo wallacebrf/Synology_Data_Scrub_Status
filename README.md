@@ -15,7 +15,7 @@
 <h3 align="center">Synology Data Scrubbing (Raid Sync and BTRFS Scrubbing) + Email Notifications on Status</h3>
 
   <p align="center">
-    This project is comprised of a shell script that is configured in Synology Task Scheduler to run once per hour. The script performs commands to determine the RAID syncing status and BTRFS file system scrubbing status. If the status is active an email is sent with that current status
+    This project is comprised of a shell script that is configured in Synology Task Scheduler to run once per hour. The script performs commands to determine the RAID syncing status and BTRFS file system scrubbing status. If the status is active an email is sent with that current status. The script will also send email notifications if other RAID activity is occuring such as resyncing during RAID rebuilds, RAID changes (SHR1 to SHR migrations for example), or RAID array creations. 
     <br />
     <a href="https://github.com/wallacebrf/Synology_Data_Scrub_Status"><strong>Explore the docs »</strong></a>
     <br />
@@ -59,11 +59,11 @@
 <!-- ABOUT THE PROJECT -->
 ### About_the_project_Details
 
-The script searches for all mdRAID devices and all BTRFS devices on a Synology system. It will then loop through all of those devices to determine if any are actively scrubbing. If active scrubbing is found, all of the pertinent data is extracted and presented to the user. 
+The script searches for all mdRAID devices and all BTRFS devices on a Synology system. It will then loop through all of those devices to determine if any are actively scrubbing. If active scrubbing is found (during scheduled scrubs, RAID rebuilds, or RAID type conversions), all of the pertinent data is extracted and presented to the user in an email. 
 
 An email with the status of scrubbing is only sent if scrubbing is active. The email will contain the following information:
 
-1.) Total scrub time between all devices
+1.) Total scrub time elapsed between all devices
 
 2.) Total scrub percentage between all devices
 
@@ -72,6 +72,12 @@ An email with the status of scrubbing is only sent if scrubbing is active. The e
 4.) Scrub percentage for the device actively scrubbing
 
 5.) details from the RAID or BTRFS scrubbing status commands
+
+
+NOTE: per Synology ```Data scrubbing is only supported on BTRFS volumes or storage pools of the following RAID types: SHR (consisting of three or more drives), RAID 5, RAID 6, or RAID F1.``` 
+Article here: https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_data_scrubbing?version=7
+
+Due to this, even though many RAID configurations are available on Synology (https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_what_is_raid?version=7), several types like RAID0, RAID1, RAID10, JOB, and finally Basic, do not support scrubbing and so will be skipped by DSM's scheduled scrubs. This script takes this into account and will mark a RAID device as unsupported, for example ```RAID device "md3" [ Raid Type: raid1 ] does not support RAID scrubbing```
 
 
 ```
