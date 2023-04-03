@@ -313,6 +313,50 @@ Also note when using SHR or SHR2: Depending on the size of the different disks u
 	Overall Scrub Percent: [############################------------] 70%
 	Total Scrubbing Runtime: 1 hours 21 minutes and 3 seconds
 
+#########################################
+#	MD RAID building on newly created SHR array on 7.3, 10.9, and 16.4 TB drives. 
+#	RAID5 array being created and RAID1 array being skipped
+#########################################
+	---------------------------------
+	BTRFS SCRUBBING DETAILS
+	---------------------------------
+
+	"/volume1" is not performing BTRFS scrubbing --> last scrub has never been performed. This appears to be a newly created volume
+
+
+	---------------------------------
+	RAID SCRUBBING DETAILS
+	---------------------------------
+
+	md2 [ Raid Type: raid5 ] scrubbing Active.
+
+
+	WARNING, RAID ARRAY "md2" STATUS ERROR - STATUS IS: "active, resyncing "
+
+
+	RAID Scrubbing Progress: [===================>.] 98.8%
+	RAID Scrubbing Blocks Processed: (7716080640/7803299584)
+	RAID Scrubbing Estimated Time Remaining: 11.6min
+	RAID Scrubbing Processing Speed: 124424K/sec
+
+
+	RAID device "md3" [ Raid Type: raid1 ] does not support RAID scrubbing
+
+
+	---------------------------------
+	OVERALL SCRUBBING DETAILS
+	---------------------------------
+
+	Number of RAID Devices [Supporting Scrubbing]: 1
+	Number of BTRFS Devices [Requiring Scrubbing]: 0
+	Total Scrubbing Tasks Required: 1
+	Scrub Processes Complete: 0
+	Devices Completed: NONE
+
+
+	Overall Scrub Percent: [=======================================.] 98%
+	Total Scrubbing Runtime: 9 hours 34 minutes and 10 seconds
+	
 ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
