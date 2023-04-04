@@ -1,5 +1,5 @@
 #!/bin/bash
-#Version 2.3 4/2/2023
+#Version 2.4 4/3/2023
 #By Brian Wallace
 
 ##############################################################
@@ -13,8 +13,14 @@
 ##############################################################
 #Change History:
 ##############################################################
+#2.4 -	added ability for script to handle the situation where a BTRFS volume has never performed a scrub process before. this can happen if the volume was just created. 
+#		added ability for script to recognize if RAID array does not support scrubbing (raid 0, raid1, or raid10) and act accordingly 
+#		added ability for script to recognize if RAID array is repairing, degraded, or recovering and act accordingly 
+#		
+#2.3 -	corrected issue with the tracking of BTRFS scrubs that complete in less than 1 hour
+#
 #2.2 -  moved the BTRFS scrubbing code to before the RAID scrubbing so it is printed first as Synology scrubbing always does BTRFS scrubbing before RAID scrubbing
-#		added code to the BTRFS section to determine when the last BTRFS scrub finished if that particular volume is not active
+#		added code to the BTRFS section to determine when the last BTRFS scsrub finished if that particular volume is not active
 #		calculate the difference in time since that BTRFS volume was scrubbed
 #			this is to assist the script in tracking BTRFS scrubs if the volume's scrub took less than 1 hour to complete.
 #			if there is little data (less than a TB) or on an SSD, BTRFS scrubbing can finish fairly quickly. 
@@ -24,9 +30,9 @@
 #		mdraid status will include warnings if the raid status is not "clean" for example if the array is degraded, etc
 #			example: WARNING, RAID ARRAY "md2" STATUS ERROR - STATUS IS: "clean, degraded"
 #		updated the formatting for the overall progress bar
-
+#
 # 2.1 - corrected the "overall" progress bar to properly show up in emails as the " |& tee -a "$log_file_location/$log_file_name"" was missed on the progress bar line
-
+#
 # 2.0 - complete rewrite of script to make output more user friendly and add BTRFS % complete, overall scrub $ complete, overall scrub run time and more
 
 
@@ -34,7 +40,7 @@
 #USER VARIABLES
 ##############################################################
 to_email_address="email@email.com"
-from_email_address="email@email.com"
+from_email_address="email@emailemail/com"
 subject="NAS Name - Disk Scrubbing Status"
 use_mail_plus=0
 log_file_location="/volume1/web/logging/notifications"
@@ -63,6 +69,7 @@ trap 'rm -rf $log_file_location/data_scrubbing2.lock' EXIT #remove the lockdir o
 scrub_active=0
 scrub_complete=0
 scrub_percent=0
+raid_repairing=0
 
 #FUNCTION TO SEND EMAILS. If Synology Mail Plus Server is not installed or used, ensure the variable "use_mail_plus" is set to "0" to use the ssmtp command. 
 #the ssmtp command uses the same email server settings as the Synology System Notification settings.
@@ -200,6 +207,8 @@ echo "" |& tee "$log_file_location/$log_file_name" #create the file and remove a
 ###############################################
 raid_device=$(mdadm --query --detail /dev/md* | grep /dev/md)
 raid_device=(`echo $raid_device | sed 's/:/\n/g'`) #make an array of the results delineated by a :
+num_raid_devices=${#raid_device[@]}
+unsupported_raid_devices=0
 
 
 ###############################################
@@ -212,6 +221,8 @@ btrfs_volumes=$(btrfs filesystem show | grep /dev*)
 	btrfs_volumes=($btrfs_volumes) # split the `names` string into an array by the same name
 	IFS=$SAVEIFS   # Restore original IFS
 
+num_btrfs_volumes=${#btrfs_volumes[@]}
+
 ###############################################
 #process the status of the different BTRFS devices on the system
 ###############################################
@@ -220,6 +231,9 @@ echo -e "---------------------------------" |& tee -a "$log_file_location/$log_f
 echo -e "BTRFS SCRUBBING DETAILS" |& tee -a "$log_file_location/$log_file_name"
 echo -e "---------------------------------\n" |& tee -a "$log_file_location/$log_file_name"
 for xx in "${!btrfs_volumes[@]}"; do
+
+	no_stats_available=0 #initialize variable 
+
 	#need to convert the /dev/mapper/cachedev_x to a volume name
 	volume_number=$(df | grep ${btrfs_volumes[$xx]#*path })
 	#returns: /dev/mapper/cachedev_0   14981718344  5599142460  9382575884  38% /volume1
@@ -246,6 +260,11 @@ for xx in "${!btrfs_volumes[@]}"; do
 	#	unverified_errors: 0
 	#	corrected_errors: 0
 	#	last_physical: 5764018077696
+	
+	volume_check=$(echo $volume_details | grep "no stats available") #if the volume has just been made and has not performed a scrub yet, then "no stats available" will be displayed
+	if [[ $volume_check != "" ]]; then
+		no_stats_available=1
+	fi
 	volume_details=$(echo $volume_details | grep -E -A 2 "started at" | grep "running for") #search the BTRFS status for the word "running for" as that is only present if scrubbing is active
 	if [[ $volume_details == "" ]]; then
 	
@@ -257,82 +276,85 @@ for xx in "${!btrfs_volumes[@]}"; do
 		#returns: scrub started at Fri Mar 31 16:27:25 2023 and finished after 00:12:57
 		#or
 		#returns  scrub started at Fri Mar 31 16:27:25 2023 and aborted after 00:12:57
-		echo -n "${volume_details#*scrub }"  |& tee -a "$log_file_location/$log_file_name"
-		explode=(`echo $volume_details | sed 's/ /\n/g'`) #explode on white space
-		#returns 
-		#	0: scrub
-		#	1: started
-		#	2: at
-		#	3: Fri
-		#	4: Mar
-		#	5: 31
-		#	6: 16:40:22
-		#	7: 2023
-		#	8: and
-		#	9: finished / aborted
-		#	10: after
-		#	11: 00:17:25
-		
-		date_diff_value=$(date_diff "${explode[4]} ${explode[5]} ${explode[7]}" "$(date "+%b") $(date "+%d") $(date "+%Y")") #calculate the number of days between the current date and when the volume finished
-		time_diff_value=$(time_diff "${explode[6]}" "$(date "+%T")") #calculate the number of minuets between the current date and when the volume finished
-				
-		volume_details=$(btrfs scrub status -d -R $volume_number | grep "error")
-		explode=(`echo $volume_details | sed 's/ /\n/g'`) #explode on white space
-		#returns the following array
-		#	0: read_errors: 
-		#	1: 0
-        #	2: csum_errors: 
-		#	3: 0
-        #	4: verify_errors: 
-		#	5: 0
-        #	6: super_errors: 
-		#	7: 0
-        #	8: malloc_errors: 
-		#	9: 0
-        #	10: uncorrectable_errors: 
-		#	11: 0
-        #	12: unverified_errors: 
-		#	13: 0
-        #	14: corrected_errors: 
-		#	15: 0
-		
-		if [ "${explode[1]}" = 0 ] && [ "${explode[3]}" = 0 ] && [ "${explode[5]}" = 0 ] && [ "${explode[7]}" = 0 ] && [ "${explode[9]}" = 0 ] && [ "${explode[11]}" = 0 ] && [ "${explode[13]}" = 0 ] && [ "${explode[15]}" = 0 ]; then
-			echo -e " --> Errors: 0\n\n\n" |& tee -a "$log_file_location/$log_file_name"
+		if [ $no_stats_available -eq 1 ]; then
+			echo -e "scrub has never been performed. This appears to be a newly created volume\n\n" |& tee -a "$log_file_location/$log_file_name"
+			let num_btrfs_volumes=num_btrfs_volumes-1
 		else
-			echo "     --> One or more errors have occurred during scrubbing, see details below:" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> Read Errors: ${explode[1]}" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> cSUM Errors: ${explode[3]}" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> Verify Errors: ${explode[5]}" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> Super Errors: ${explode[7]}" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> Malloc Errors: ${explode[9]}" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> Un-correctable Errors: ${explode[11]}" |& tee -a "$log_file_location/$log_file_name"
-			echo "     --> Unverified Errors: ${explode[13]}" |& tee -a "$log_file_location/$log_file_name"
-			echo -e "     --> Corrected Errors: ${explode[15]}\n\n\n" |& tee -a "$log_file_location/$log_file_name"
-		fi
-
-########################################################################################
-		if [ $date_diff_value -le 1 ]; then #make sure the last scrub was was done less than or equial to 1 day (1 rather than 0 in case the day rolls over at midnight)
+			echo -n "${volume_details#*scrub }"  |& tee -a "$log_file_location/$log_file_name"
+			explode=(`echo $volume_details | sed 's/ /\n/g'`) #explode on white space
+			#returns 
+			#	0: scrub
+			#	1: started
+			#	2: at
+			#	3: Fri
+			#	4: Mar
+			#	5: 31
+			#	6: 16:40:22
+			#	7: 2023
+			#	8: and
+			#	9: finished / aborted
+			#	10: after
+			#	11: 00:17:25
 			
-			if [ $time_diff_value -le 61 ]; then #if the volume finished 61 or fewer mins ago. since script is run every hour this will catch any scrubs that finished really fast between executions
-				
-				#to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
-				#check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
-				if [ -r "$log_file_location/script_percent_tracking.txt" ]; then  #the file will only exist if a scrub is still active
-					read script_percent_tracking < "$log_file_location/script_percent_tracking.txt"
+			date_diff_value=$(date_diff "${explode[4]} ${explode[5]} ${explode[7]}" "$(date "+%b") $(date "+%d") $(date "+%Y")") #calculate the number of days between the current date and when the volume finished
+			time_diff_value=$(time_diff "${explode[6]}" "$(date "+%T")") #calculate the number of minuets between the current date and when the volume finished
+					
+			volume_details=$(btrfs scrub status -d -R $volume_number | grep "error")
+			explode=(`echo $volume_details | sed 's/ /\n/g'`) #explode on white space
+			#returns the following array
+			#	0: read_errors: 
+			#	1: 0
+			#	2: csum_errors: 
+			#	3: 0
+			#	4: verify_errors: 
+			#	5: 0
+			#	6: super_errors: 
+			#	7: 0
+			#	8: malloc_errors: 
+			#	9: 0
+			#	10: uncorrectable_errors: 
+			#	11: 0
+			#	12: unverified_errors: 
+			#	13: 0
+			#	14: corrected_errors: 
+			#	15: 0
+			
+			if [ "${explode[1]}" = 0 ] && [ "${explode[3]}" = 0 ] && [ "${explode[5]}" = 0 ] && [ "${explode[7]}" = 0 ] && [ "${explode[9]}" = 0 ] && [ "${explode[11]}" = 0 ] && [ "${explode[13]}" = 0 ] && [ "${explode[15]}" = 0 ]; then
+				echo -e " --> Errors: 0\n\n\n" |& tee -a "$log_file_location/$log_file_name"
+			else
+				echo "     --> One or more errors have occurred during scrubbing, see details below:" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> Read Errors: ${explode[1]}" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> cSUM Errors: ${explode[3]}" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> Verify Errors: ${explode[5]}" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> Super Errors: ${explode[7]}" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> Malloc Errors: ${explode[9]}" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> Un-correctable Errors: ${explode[11]}" |& tee -a "$log_file_location/$log_file_name"
+				echo "     --> Unverified Errors: ${explode[13]}" |& tee -a "$log_file_location/$log_file_name"
+				echo -e "     --> Corrected Errors: ${explode[15]}\n\n\n" |& tee -a "$log_file_location/$log_file_name"
+			fi
 
-					#determine if the current scrubbing device has already been detected in a previous execution of the script
-					if [[ "$script_percent_tracking" != *"$volume_number"* ]]; then
-						#if the current scrubbing device is not in the log, add it. the comma at the end will be used to count the number of completed items later. 
-						echo -n ",$volume_number" >> "$log_file_location/script_percent_tracking.txt"
-						script_percent_tracking=$script_percent_tracking",$volume_number"
+			if [ $date_diff_value -le 1 ]; then #make sure the last scrub was was done less than or equial to 1 day (1 rather than 0 in case the day rolls over at midnight)
+				
+				if [ $time_diff_value -le 61 ]; then #if the volume finished 61 or fewer mins ago. since script is run every hour this will catch any scrubs that finished really fast between executions
+					
+					#to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
+					#check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
+					if [ -r "$log_file_location/script_percent_tracking.txt" ]; then  #the file will only exist if a scrub is still active
+						read script_percent_tracking < "$log_file_location/script_percent_tracking.txt"
+
+						#determine if the current scrubbing device has already been detected in a previous execution of the script
+						if [[ "$script_percent_tracking" != *"$volume_number"* ]]; then
+							#if the current scrubbing device is not in the log, add it. the comma at the end will be used to count the number of completed items later. 
+							echo -n ",$volume_number" >> "$log_file_location/script_percent_tracking.txt"
+							script_percent_tracking=$script_percent_tracking",$volume_number"
+						fi
+					else
+						echo -n "$volume_number" > "$log_file_location/script_percent_tracking.txt"
+						script_percent_tracking=$script_percent_tracking"$volume_number"
 					fi
-				else
-					echo -n "$volume_number" > "$log_file_location/script_percent_tracking.txt"
-					script_percent_tracking=$script_percent_tracking"$volume_number"
 				fi
 			fi
 		fi
-		
 		
 	else
 		scrub_active=1
@@ -453,8 +475,8 @@ for xx in "${!btrfs_volumes[@]}"; do
 		fi
 		
 		#calculate the total scrubbing complete process.
-		scrub_percent=$(printf %.0f "$((10**3 * $scrub_complete/$(( ${#btrfs_volumes[@]} + ${#raid_device[@]} -2 ))))e-1")
-		percent_scrubbed=$(printf %.0f "$((10**3 * ${percent_scrubbed%???}/$(( ${#btrfs_volumes[@]} + ${#raid_device[@]} -2 ))))e-3")
+		scrub_percent=$(printf %.0f "$((10**3 * $scrub_complete/$(( $num_btrfs_volumes + $num_raid_devices -2 ))))e-1")
+		percent_scrubbed=$(printf %.0f "$((10**3 * ${percent_scrubbed%???}/$(( $num_btrfs_volumes + $num_raid_devices -2 ))))e-3")
 		percent_scrubbed=$(( $percent_scrubbed + $scrub_percent ))
 		if [ $scrub_complete -eq 0 ];then
 			script_percent_tracking=${script_percent_tracking/%$volume_number}
@@ -475,89 +497,99 @@ echo -e "---------------------------------\n" |& tee -a "$log_file_location/$log
 for xx in "${!raid_device[@]}"; do
 	if [[ ${raid_device[$xx]} != "/dev/md0" && ${raid_device[$xx]} != "/dev/md1" ]]; then
 		
-		volume_details=$(grep -E -A 2 ${raid_device[$xx]#*/dev/} /proc/mdstat | grep "finish=") #get mdRAID status, and search for the text "finish=" which is only found if a scrub is active
-		#returns  "[===============>.....]  resync = 77.8% (6078469488/7803302208) finish=165.8min speed=173334K/sec"
-		
 		raid_type=$(mdadm --detail ${raid_device[$xx]} | grep "Raid Level")
 		#returns for example: Raid Level : raid5
 		
-		raid_state=$(mdadm --detail ${raid_device[$xx]} | grep "State :")
-		#returns for example: "State : clean"
-		raid_state=${raid_state#*State : } #removes everything but the actual status
-		
-		
-		if [[ $volume_details == "" ]]; then #if no scrubbing is active, then the grep commands will return no text
-			echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] is not performing RAID scrubbing\n\n" |& tee -a "$log_file_location/$log_file_name"
-			if [[ $raid_state != "clean " && $raid_state != "clean, resyncing " ]]; then
-				echo -e "WARNING, RAID ARRAY \"${raid_device[$xx]#*/dev/}\" STATUS ERROR - STATUS IS: \"$raid_state\"\n\n" |& tee -a "$log_file_location/$log_file_name"
-			fi
+		if [[ ${raid_type#*Raid Level : } == "raid1" || ${raid_type#*Raid Level : } == "raid0" || ${raid_type#*Raid Level : } == "raid10" ]]; then
+			echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] does not support RAID scrubbing\n\n" |& tee -a "$log_file_location/$log_file_name"
+			let unsupported_raid_devices=unsupported_raid_devices+1
 		else
-			scrub_active=1
 			
-			#to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
-			#check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
-			if [ -r "$log_file_location/script_percent_tracking.txt" ]; then 
-				read script_percent_tracking < "$log_file_location/script_percent_tracking.txt"
-			else
+			raid_state=$(mdadm --detail ${raid_device[$xx]} | grep "State :")
+			#returns for example: "State : clean"
+			raid_state=${raid_state#*State : } #removes everything but the actual status
+			
+			if [[ $(echo "$raid_state" | grep "resyncing") != "" || $(echo "$raid_state" | grep "degraded") != "" || $(echo "$raid_state" | grep "recovering") != "" || $(echo "$raid_state" | grep "crashed") != "" ]]; then
+				raid_repairing=1 #if we are resyncing or degraded/recovering, this is not a normal scrub it is probably due to array just being made or the array rebuilding, so the system will not be focusing on BTRFS, so lets skip BTRFS volumes
 				echo -n "${raid_device[$xx]#*/dev/}" > "$log_file_location/script_percent_tracking.txt"
 				script_percent_tracking="${raid_device[$xx]#*/dev/}"
+				echo -e "WARNING, RAID ARRAY \"${raid_device[$xx]#*/dev/}\" STATUS IS: \"$raid_state\"\n\n" |& tee -a "$log_file_location/$log_file_name"
 			fi
 			
+			volume_details=$(grep -E -A 2 ${raid_device[$xx]#*/dev/} /proc/mdstat | grep "finish=") #get mdRAID status, and search for the text "finish=" which is only found if a scrub is active
+			#returns  "[===============>.....]  resync = 77.8% (6078469488/7803302208) finish=165.8min speed=173334K/sec"
 			
-			#determine if the current scrubbing device has already been detected in a previous execution of the script
-			if [[ "$script_percent_tracking" != *"${raid_device[$xx]#*/dev/}"* ]]; then
-				#if the current scrubbing device is not in the log, add it. the comma at the end will be used to count the number of completed items later. 
-				echo -n ",${raid_device[$xx]#*/dev/}" >> "$log_file_location/script_percent_tracking.txt"
-				script_percent_tracking=$script_percent_tracking",${raid_device[$xx]#*/dev/}"
-			fi
-			
-			scrub_complete=$(echo "${script_percent_tracking}" | awk -F"," '{print NF-1}') #count the number of commas minus 1 to see how many devices have previously completed their scrubbing. 
-			
-			
-			explode=(`echo $volume_details | sed 's/)/\n/g'`) #explode on the string
-			#returns 7x items in an array
-			#	0.)"[===============>.....]"
-			#	1.)"resync"
-			#	2.)"=" 
-			#	3.)"78.3%"
-			#	4.)"(6117200640/7803302208"
-			#	5.)"finish=168.5min"
-			#	6.)"speed=166748K/sec"
-			explode2=(`echo ${explode[5]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "finish=168.5min" and explode on "=" to extract the "finish" time
-			#returns two items in an array
-			#	0.)"finish"
-			#	1.)"168.5min"
-			explode3=(`echo ${explode[6]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "speed=166748K/sec" and explode on "=" to extract the "speed"
-			#returns two items in an array
-			#	0.)"speed"
-			#	1.)"166748K/sec"
-			
-			percent_bar=${explode[0]}
-			percent=${explode[3]}
-			blocks=${explode[4]}
-			finish=${explode2[1]}
-			speed=${explode3[1]}
-
-			echo -e "${raid_device[$xx]#*/dev/} [ Raid Type: ${raid_type#*Raid Level : } ] scrubbing Active.\n\n" |& tee -a "$log_file_location/$log_file_name"
-			if [[ $raid_state != "clean " && $raid_state != "clean, resyncing " ]]; then
-				echo -e "WARNING, RAID ARRAY \"${raid_device[$xx]#*/dev/}\" STATUS ERROR - STATUS IS: \"$raid_state\"\n\n" |& tee -a "$log_file_location/$log_file_name"
-			fi
-			echo "RAID Scrubbing Progress: $percent_bar $percent" |& tee -a "$log_file_location/$log_file_name"
-			echo "RAID Scrubbing Blocks Processed: $blocks)" |& tee -a "$log_file_location/$log_file_name"
-			echo "RAID Scrubbing Estimated Time Remaining: $finish" |& tee -a "$log_file_location/$log_file_name"
-			echo -e "RAID Scrubbing Processing Speed: $speed\n\n" |& tee -a "$log_file_location/$log_file_name"
-			
-			
-			#calculate the total scrubbing complete process. 
-			scrub_percent=$(printf %.0f "$((10**3 * $scrub_complete/$(( ${#btrfs_volumes[@]} + ${#raid_device[@]} -2 ))))e-1") #divide number of devices that have completed scrubbing by total number of devices that require scrubbing
-			percent_scrubbed=$(printf %.0f "$((10**3 * ${percent%???}/$(( ${#btrfs_volumes[@]} + ${#raid_device[@]} -2 ))))e-3") #divide the currently scrubbing device's % complete as reported by mdraid and divide by total number of devices that require scrubbing
-			percent_scrubbed=$(( $scrub_percent + $percent_scrubbed )) #add two calculations together
-			if [ $scrub_complete -eq 0 ];then
-				script_percent_tracking=${script_percent_tracking/%${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
+			if [[ $volume_details == "" ]]; then #if no scrubbing is active, then the grep commands will return no text
+				echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] is not performing RAID scrubbing\n\n" |& tee -a "$log_file_location/$log_file_name"
 			else
-				script_percent_tracking=${script_percent_tracking/%,${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
-			fi
-		fi	
+				scrub_active=1
+				
+				#to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
+				#check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
+				if [ -r "$log_file_location/script_percent_tracking.txt" ]; then 
+					read script_percent_tracking < "$log_file_location/script_percent_tracking.txt"
+				else
+					echo -n "${raid_device[$xx]#*/dev/}" > "$log_file_location/script_percent_tracking.txt"
+					script_percent_tracking="${raid_device[$xx]#*/dev/}"
+				fi
+				
+				
+				#determine if the current scrubbing device has already been detected in a previous execution of the script
+				if [[ "$script_percent_tracking" != *"${raid_device[$xx]#*/dev/}"* ]]; then
+					#if the current scrubbing device is not in the log, add it. the comma at the end will be used to count the number of completed items later. 
+					echo -n ",${raid_device[$xx]#*/dev/}" >> "$log_file_location/script_percent_tracking.txt"
+					script_percent_tracking=$script_percent_tracking",${raid_device[$xx]#*/dev/}"
+				fi
+				
+				scrub_complete=$(echo "${script_percent_tracking}" | awk -F"," '{print NF-1}') #count the number of commas minus 1 to see how many devices have previously completed their scrubbing. 
+				
+				
+				explode=(`echo $volume_details | sed 's/)/\n/g'`) #explode on the string
+				#returns 7x items in an array
+				#	0.)"[===============>.....]"
+				#	1.)"resync"
+				#	2.)"=" 
+				#	3.)"78.3%"
+				#	4.)"(6117200640/7803302208"
+				#	5.)"finish=168.5min"
+				#	6.)"speed=166748K/sec"
+				explode2=(`echo ${explode[5]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "finish=168.5min" and explode on "=" to extract the "finish" time
+				#returns two items in an array
+				#	0.)"finish"
+				#	1.)"168.5min"
+				explode3=(`echo ${explode[6]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "speed=166748K/sec" and explode on "=" to extract the "speed"
+				#returns two items in an array
+				#	0.)"speed"
+				#	1.)"166748K/sec"
+				
+				percent_bar=${explode[0]}
+				percent=${explode[3]}
+				blocks=${explode[4]}
+				finish=${explode2[1]}
+				speed=${explode3[1]}
+
+				echo -e "${raid_device[$xx]#*/dev/} [ Raid Type: ${raid_type#*Raid Level : } ] scrubbing Active.\n\n" |& tee -a "$log_file_location/$log_file_name"
+				#if [[ $raid_state != "clean " && $raid_state != "clean, resyncing " ]]; then
+				#	echo -e "WARNING, RAID ARRAY \"${raid_device[$xx]#*/dev/}\" STATUS IS: \"$raid_state\"\n\n" |& tee -a "$log_file_location/$log_file_name"
+				#fi
+				echo "RAID Scrubbing Progress: $percent_bar $percent" |& tee -a "$log_file_location/$log_file_name"
+				echo "RAID Scrubbing Blocks Processed: $blocks)" |& tee -a "$log_file_location/$log_file_name"
+				echo "RAID Scrubbing Estimated Time Remaining: $finish" |& tee -a "$log_file_location/$log_file_name"
+				echo -e "RAID Scrubbing Processing Speed: $speed\n\n" |& tee -a "$log_file_location/$log_file_name"
+				
+				
+				
+			fi	
+		fi
+		#calculate the total scrubbing complete process. 
+		scrub_percent=$(printf %.0f "$((10**3 * $scrub_complete/$(( $num_btrfs_volumes + $num_raid_devices - 2 - $unsupported_raid_devices ))))e-1") #divide number of devices that have completed scrubbing by total number of devices that require scrubbing
+		percent_scrubbed=$(printf %.0f "$((10**3 * ${percent%???}/$(( $num_btrfs_volumes + $num_raid_devices - 2 - $unsupported_raid_devices ))))e-3") #divide the currently scrubbing device's % complete as reported by mdraid and divide by total number of devices that require scrubbing
+		percent_scrubbed=$(( $scrub_percent + $percent_scrubbed )) #add two calculations together
+		if [ $scrub_complete -eq 0 ];then
+			script_percent_tracking=${script_percent_tracking/%${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
+		else
+			script_percent_tracking=${script_percent_tracking/%,${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
+		fi
 	fi
 done
 
@@ -608,20 +640,24 @@ if [ $scrub_active -eq 1 ]; then
 		runtime=$(displaytime 60) #the scheduled task to run this script needs to be run 1 minuet later than the start time of the scrubbing for accurate timing
 	fi
 	
-	echo -e "---------------------------------" |& tee -a "$log_file_location/$log_file_name"
-	echo -e "OVERALL SCRUBBING DETAILS" |& tee -a "$log_file_location/$log_file_name"
-	echo -e "---------------------------------\n" |& tee -a "$log_file_location/$log_file_name"
-	echo "Number of RAID Devices: $(( ${#raid_device[@]} -2 ))" |& tee -a "$log_file_location/$log_file_name"
-	echo "Number of BTRFS Devices: ${#btrfs_volumes[@]}" |& tee -a "$log_file_location/$log_file_name"
-	echo "Total Scrubbing Tasks Required: $(( ${#btrfs_volumes[@]} + ${#raid_device[@]} -2 ))" |& tee -a "$log_file_location/$log_file_name"
-	echo "Scrub Processes Complete: $scrub_complete"  |& tee -a "$log_file_location/$log_file_name"
-	if [[ "$script_percent_tracking" == "" ]]; then
-		echo "Devices Completed: NONE" |& tee -a "$log_file_location/$log_file_name"
+	if [ $raid_repairing -eq 0 ]; then
+		echo -e "---------------------------------" |& tee -a "$log_file_location/$log_file_name"
+		echo -e "OVERALL SCRUBBING DETAILS" |& tee -a "$log_file_location/$log_file_name"
+		echo -e "---------------------------------\n" |& tee -a "$log_file_location/$log_file_name"
+		echo "Number of RAID Devices [Supporting Scrubbing]: $(( $num_raid_devices - 2 - $unsupported_raid_devices ))" |& tee -a "$log_file_location/$log_file_name"
+		echo "Number of BTRFS Devices [Requiring Scrubbing]: $num_btrfs_volumes" |& tee -a "$log_file_location/$log_file_name"
+		echo "Total Scrubbing Tasks Required: $(( $num_btrfs_volumes + $num_raid_devices - 2 - $unsupported_raid_devices ))" |& tee -a "$log_file_location/$log_file_name"
+		echo "Scrub Processes Complete: $scrub_complete"  |& tee -a "$log_file_location/$log_file_name"
+		if [[ "$script_percent_tracking" == "" ]]; then
+			echo "Devices Completed: NONE" |& tee -a "$log_file_location/$log_file_name"
+		else
+			echo "Devices Completed: $script_percent_tracking" |& tee -a "$log_file_location/$log_file_name"
+		fi
+		
+		ProgressBar ${percent_scrubbed} 100 |& tee -a "$log_file_location/$log_file_name"
 	else
-		echo "Devices Completed: $script_percent_tracking" |& tee -a "$log_file_location/$log_file_name"
+		echo "RAID is repairing due to either active re-syncing, recovering, or repairing, until this is complete normal scrubbing cannot occur" |& tee -a "$log_file_location/$log_file_name"
 	fi
-	
-	ProgressBar ${percent_scrubbed} 100 |& tee -a "$log_file_location/$log_file_name"
 	echo -e "\nTotal Scrubbing Runtime: $runtime" |& tee -a "$log_file_location/$log_file_name"
 
 	if [ $enable_email_notifications -eq 1 ]; then
