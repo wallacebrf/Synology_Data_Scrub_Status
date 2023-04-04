@@ -13,7 +13,9 @@ version="2.6 4/4/2023"
 ##############################################################
 #Change History:
 ##############################################################
-#2.6 -	small tweaks, added additional code comments, better wording and formatting of output text, script now prints out version within the logs and emails
+#2.6 -	small tweaks, added additional code comments, better wording and formatting of output text
+#		script now prints out version within the logs and emails
+#		corrected BTRFS scrub percentage calculation. was incorrectly using total volume size, when it should have used the "Used" space of the volume
 #
 #2.5 - 	fixed an error created in version 2.4 that caused percent calculations to not work correctly during BTRFS scrubs
 #2.4 -	added ability for script to handle the situation where a BTRFS volume has never performed a scrub process before. this can happen if the volume was just created. 
@@ -456,13 +458,16 @@ for xx in "${!btrfs_volumes[@]}"; do
 				
 		echo -e "\"$volume_number\" BTRFS scrubbing Active.\n\n" |& tee -a "$log_file_location/$log_file_name"
 		
-		volume_size=$(btrfs filesystem usage -b $volume_number | grep "Device size:" | cut -c 23-) #for the current volume, get BTRFS volume details, and only return the size of the volume
+		volume_size=$(btrfs filesystem usage -b $volume_number | grep -m1 "Used:" | xargs) #for the current volume, get BTRFS volume details, and only return the used space of the volume
+		#returns "Used: 29338076205056" for example
+		volume_size=${volume_size#*Used: } #remove the "Used: " beginning text so we have just the number
 		percent_scrubbed=$(printf %.2f "$((10**3 * $amount_scrubbed/$volume_size))e-1")	
+
 		echo "BTRFS Scrubbing Date Started: $date_started" |& tee -a "$log_file_location/$log_file_name"
 		echo "BTRFS Scrubbing Duration:  $run_time" |& tee -a "$log_file_location/$log_file_name"
 		echo "BTRFS Scrubbing Device Name:  $device_name" |& tee -a "$log_file_location/$log_file_name"
 		echo "BTRFS Scrubbing Data Scrubbed [Bytes]:  $amount_scrubbed" |& tee -a "$log_file_location/$log_file_name"
-		echo "BTRFS Scrubbing Volume Size [Bytes]:  $volume_size" |& tee -a "$log_file_location/$log_file_name"
+		echo "BTRFS Scrubbing Volume Used Space [Bytes]:  $volume_size" |& tee -a "$log_file_location/$log_file_name"
 		echo "BTRFS Scrubbing Percent Complete:  $percent_scrubbed%" |& tee -a "$log_file_location/$log_file_name"
 						
 		#do we have any errors? if there are no errors, show that, if there are errors then print the detailed error information 
@@ -504,7 +509,7 @@ for xx in "${!raid_device[@]}"; do
 		#returns for example: "Raid Level : raid5"
 		
 		if [[ ${raid_type#*Raid Level : } == "raid1" || ${raid_type#*Raid Level : } == "raid0" || ${raid_type#*Raid Level : } == "raid10" ]]; then
-			echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] does not support RAID scrubbing\n\n" |& tee -a "$log_file_location/$log_file_name"
+			echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] does not support RAID scrubbing and will be skipped.\n\n" |& tee -a "$log_file_location/$log_file_name"
 			let unsupported_raid_devices=unsupported_raid_devices+1 #remove the device from the number of RAID devices that will be scrubbed to ensure the percentage calculation is correct. 
 		else
 			
