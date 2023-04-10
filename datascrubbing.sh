@@ -1,5 +1,5 @@
 #!/bin/bash
-version="2.7 4/10/2023"
+version="2.71 4/10/2023"
 #By Brian Wallace
 
 ##############################################################
@@ -13,6 +13,7 @@ version="2.7 4/10/2023"
 ##############################################################
 #Change History:
 ##############################################################
+#2.71-	corrected typo in minimum RAID array quantity for "no raid devices found" to be triggered
 #2.7 -	added handling of no BTRFS volumes or no RAID devices 
 #
 #2.6 -	small tweaks, added additional code comments, better wording and formatting of output text
@@ -508,7 +509,7 @@ xx=0
 echo -e "---------------------------------" |& tee -a "$log_file_location/$log_file_name"
 echo -e "RAID SCRUBBING DETAILS" |& tee -a "$log_file_location/$log_file_name"
 echo -e "---------------------------------\n" |& tee -a "$log_file_location/$log_file_name"
-if [ $num_raid_devices -lt 1 ]; then
+if [ $num_raid_devices -lt 3 ]; then
 	echo -e "No RAID devices found, RAID scrubbing will be skipped \n" |& tee -a "$log_file_location/$log_file_name"
 else
 	for xx in "${!raid_device[@]}"; do
@@ -700,234 +701,3 @@ else
 		rm "$log_file_location/script_percent_tracking.txt"
 	fi
 fi
-
-
-########################################
-#EXAMPLE SCRIPT OUTPUTS
-########################################
-#
-#
-#########################################
-#	No Active Scrubbing
-#	one storage pool, RAID5, with three volumes. Volume1=BTRFS, Volume2=EXT4, Volume3=BTRFS
-########################################
-#	---------------------------------
-#	BTRFS SCRUBBING DETAILS
-#	---------------------------------
-#
-#	"/volume1" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:09:28 2023 and finished after 00:13:00 --> Errors: 0
-#
-#
-#
-#	"/volume3" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:22:28 2023 and finished after 00:17:26 --> Errors: 0
-#
-#
-#
-#	---------------------------------
-#	RAID SCRUBBING DETAILS
-#	---------------------------------
-#
-#	RAID device "md2" [ Raid Type: raid5 ] is not performing RAID scrubbing
-#
-#
-#
-#########################################
-#	BTRFS Active Scrubbing, No errors
-#	one storage pool, RAID5, with three volumes. Volume1=BTRFS, Volume2=EXT4, Volume3=BTRFS
-########################################
-#	---------------------------------
-#	BTRFS SCRUBBING DETAILS
-#	---------------------------------
-#
-#	"/volume1" BTRFS scrubbing Active.
-#
-#
-#	BTRFS Scrubbing Date Started: Sat Apr 1 2023, 09:43:47
-#	BTRFS Scrubbing Duration:  00:01:15
-#	BTRFS Scrubbing Device Name:  /dev/mapper/cachedev_0
-#	BTRFS Scrubbing Data Scrubbed [Bytes]:  36694208512
-#	BTRFS Scrubbing Volume Size [Bytes]:   5326833188864
-#	BTRFS Scrubbing Percent Complete:  0.60%
-#	BTRFS Scrubbing Errors: 0
-#
-#
-#	"/volume3" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:22:28 2023 and finished after 00:17:26 --> Errors: 0
-#
-#
-#
-#	---------------------------------
-#	RAID SCRUBBING DETAILS
-#	---------------------------------
-#
-#	RAID device "md2" [ Raid Type: raid5 ] is not performing RAID scrubbing
-#
-#
-#	---------------------------------
-#	OVERALL SCRUBBING DETAILS
-#	---------------------------------
-#
-#	Number of RAID Devices: 1
-#	Number of BTRFS Devices: 2
-#	Total Scrubbing Tasks Required: 3
-#	Scrub Processes Complete: 0
-#	Devices Completed: NONE
-#
-#	Overall Scrub Percent: [----------------------------------------] 0%
-#	Total Scrubbing Runtime: 2 minutes and 10 seconds
-#
-#
-#########################################
-#	BTRFS Active Scrubbing, With errors detected
-#	one storage pool, RAID5, with three volumes. Volume1=BTRFS, Volume2=EXT4, Volume3=BTRFS
-########################################
-#	---------------------------------
-#	BTRFS SCRUBBING DETAILS
-#	---------------------------------
-#
-#	"/volume1" BTRFS scrubbing Active.
-#
-#
-#	BTRFS Scrubbing Date Started: Sat Apr 1 2023, 09:43:47
-#	BTRFS Scrubbing Duration:  00:05:28
-#	BTRFS Scrubbing Device Name:  /dev/mapper/cachedev_0
-#	BTRFS Scrubbing Data Scrubbed [Bytes]:  165558628352
-#	BTRFS Scrubbing Volume Size [Bytes]:   5326833188864
-#	BTRFS Scrubbing Percent Complete:  3.10%
-#	One or more errors have occurred during scrubbing, see details below:
-#	--> Read Errors: 0
-#	--> cSUM Errors: 1
-#	--> Verify Errors: 0
-#	--> nocSUM Errors: 0
-#	--> cSUM Discards: 0
-#	--> Super Errors: 0
-#	--> Malloc Errors: 0
-#	--> Un-correctable Errors: 0
-#	--> Corrected Errors: 0
-#
-#
-#	"/volume3" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:22:28 2023 and finished after 00:17:26 --> Errors: 0
-#
-#
-#
-#	---------------------------------
-#	RAID SCRUBBING DETAILS
-#	---------------------------------
-#
-#	RAID device "md2" [ Raid Type: raid5 ] is not performing RAID scrubbing
-#
-#
-#	---------------------------------
-#	OVERALL SCRUBBING DETAILS
-#	---------------------------------
-#
-#	Number of RAID Devices: 1
-#	Number of BTRFS Devices: 2
-#	Total Scrubbing Tasks Required: 3
-#	Scrub Processes Complete: 0
-#	Devices Completed: NONE
-#
-#	Overall Scrub Percent: [----------------------------------------] 1%
-#	Total Scrubbing Runtime: 6 minutes and 23 seconds
-#
-#
-#
-#########################################
-#	MD RAID scrubbing after completing BTRFS scrubbing. BTRFS with NO ERRORS
-#	one storage pool, RAID5, with three volumes. Volume1=BTRFS, Volume2=EXT4, Volume3=BTRFS
-########################################
-#	---------------------------------
-#	BTRFS SCRUBBING DETAILS
-#	---------------------------------
-#
-#	"/volume1" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:09:28 2023 and finished after 00:13:00 --> Errors: 0
-#
-#
-#
-#	"/volume3" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:22:28 2023 and finished after 00:17:26 --> Errors: 0
-#
-#
-#
-#	---------------------------------
-#	RAID SCRUBBING DETAILS
-#	---------------------------------
-#
-#	md2 [ Raid Type: raid5 ] scrubbing Active.
-#
-#
-#	RAID Scrubbing Progress: [=>...................] 9.2%
-#	RAID Scrubbing Blocks Processed: (724645248/7803302208)
-#	RAID Scrubbing Estimated Time Remaining: 681.5min
-#	RAID Scrubbing Processing Speed: 173103K/sec
-#
-#
-#	---------------------------------
-#	OVERALL SCRUBBING DETAILS
-#	---------------------------------
-#
-#	Number of RAID Devices: 1
-#	Number of BTRFS Devices: 2
-#	Total Scrubbing Tasks Required: 3
-#	Scrub Processes Complete: 2
-#	Devices Completed: /volume1,/volume3
-#
-#	Overall Scrub Percent: [############################------------] 70%
-#	Total Scrubbing Runtime: 1 hours 21 minutes and 29 seconds
-#
-#
-#########################################
-#	MD RAID scrubbing after completing BTRFS scrubbing. BTRFS with errors detected
-#	one storage pool, RAID5, with three volumes. Volume1=BTRFS, Volume2=EXT4, Volume3=BTRFS
-########################################
-#	---------------------------------
-#	BTRFS SCRUBBING DETAILS
-#	---------------------------------
-#
-#	"/volume1" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:09:28 2023 and finished after 00:13:00     --> One or more errors have occurred during scrubbing, see details below:
-#		 --> Read Errors: 0
-#		 --> cSUM Errors: 0
-#		 --> Verify Errors: 0
-#		 --> Super Errors: 0
-#		 --> Malloc Errors: 0
-#		 --> Un-correctable Errors: 0
-#		 --> Unverified Errors: 0
-#		 --> Corrected Errors: 0
-#
-#
-#
-#	"/volume3" is not performing BTRFS scrubbing --> last started at Sat Apr  1 08:22:28 2023 and finished after 00:17:26     --> One or more errors have occurred during scrubbing, see details below:
-#		 --> Read Errors: 0
-#		 --> cSUM Errors: 0
-#		 --> Verify Errors: 0
-#		 --> Super Errors: 0
-#		 --> Malloc Errors: 0
-#		 --> Un-correctable Errors: 0
-#		 --> Unverified Errors: 0
-#		 --> Corrected Errors: 0
-#
-#
-#
-#	---------------------------------
-#	RAID SCRUBBING DETAILS
-#	---------------------------------
-#
-#	md2 [ Raid Type: raid5 ] scrubbing Active.
-#
-#
-#	RAID Scrubbing Progress: [=>...................] 9.2%
-#	RAID Scrubbing Blocks Processed: (720363008/7803302208)
-#	RAID Scrubbing Estimated Time Remaining: 523.6min
-#	RAID Scrubbing Processing Speed: 225448K/sec
-#
-#
-#	---------------------------------
-#	OVERALL SCRUBBING DETAILS
-#	---------------------------------
-#
-#	Number of RAID Devices: 1
-#	Number of BTRFS Devices: 2
-#	Total Scrubbing Tasks Required: 3
-#	Scrub Processes Complete: 2
-#	Devices Completed: /volume1,/volume3
-#
-#	Overall Scrub Percent: [############################------------] 70%
-#	Total Scrubbing Runtime: 1 hours 21 minutes and 3 seconds
