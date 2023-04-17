@@ -81,6 +81,9 @@ An email with the status of scrubbing is only sent if scrubbing is active. The e
 NOTE: per Synology ```Data scrubbing is only supported on BTRFS volumes or storage pools of the following RAID types: SHR (consisting of three or more drives), RAID 5, RAID 6, or RAID F1.``` 
 Article here: https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_data_scrubbing?version=7
 
+Here is what the Scrubbing Schedule window shows for example
+<img src="https://raw.githubusercontent.com/wallacebrf/Synology_Data_Scrub_Status/main/images/raid_unsupported.png" alt="Logo">
+
 Due to this, even though many RAID configurations are available on Synology (https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_what_is_raid?version=7), several types like RAID0, RAID1, RAID10, JOB, and finally Basic, do not support scrubbing and so will be skipped by DSM's scheduled scrubs. This script takes this into account and will mark a RAID device as unsupported, for example ```RAID device "md3" [ Raid Type: raid1 ] does not support RAID scrubbing```
 
 Also note when using SHR or SHR2: Depending on the size of the different disks used in SHR, DSM will automatically create RAID5/6 (depending on SHR level) and will  create RAID1 or RAID10 elements [depending on SHR level]. For example, in a test system I have been developing this script on, I had 7.3, 10.9, and 16.4 TB drives in a 18.2 TB SHR array. DSM created this by making a RAID5 array using 7.3TB from each drive giving me 14.6TB of space. The remainder of the 18.2TB array was made by creating a RAID1 [Mirror] array using 3.6TB on the 10.9TB drive and 3.6TB on the 16.4TB drive. This resulted in a 14.6 + 3.6 = 18.2TB array. Due to this, when running this script on this particular SHR array, the script will find both the RAID5 and RAID1 arrays, but will mark the RAID1 array as unsupported due to DSM skipping it as part of scheduled scrubs. 
