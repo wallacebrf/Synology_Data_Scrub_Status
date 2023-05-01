@@ -86,6 +86,8 @@ Here is what the Scrubbing Schedule window shows for example
 
 Due to this, even though many RAID configurations are available on Synology (https://kb.synology.com/en-id/DSM/help/DSM/StorageManager/storage_pool_what_is_raid?version=7), several types like RAID0, RAID1, RAID10, JOB, and finally Basic, do not support scrubbing and so will be skipped by DSM's scheduled scrubs. This script takes this into account and will mark a RAID device as unsupported, for example ```RAID device "md3" [ Raid Type: raid1 ] does not support RAID scrubbing```
 
+however if a user who is utilizing RAID0 or RAID1 arrays and is either creating the array, or repairing the array, the script can be used and the configurationparamter ```force_sync_status_display=0``` can be set to a value of 1. This forces the script to send emails on the MDADM status of the arrays, but will make it ignore BTRFS scrubbing as BTRFS scrubs do not occur during array repair. 
+
 Also note when using SHR or SHR2: Depending on the size of the different disks used in SHR, DSM will automatically create RAID5/6 (depending on SHR level) and will  create RAID1 or RAID10 elements [depending on SHR level]. For example, in a test system I have been developing this script on, I had 7.3, 10.9, and 16.4 TB drives in a 18.2 TB SHR array. DSM created this by making a RAID5 array using 7.3TB from each drive giving me 14.6TB of space. The remainder of the 18.2TB array was made by creating a RAID1 [Mirror] array using 3.6TB on the 10.9TB drive and 3.6TB on the 16.4TB drive. This resulted in a 14.6 + 3.6 = 18.2TB array. Due to this, when running this script on this particular SHR array, the script will find both the RAID5 and RAID1 arrays, but will mark the RAID1 array as unsupported due to DSM skipping it as part of scheduled scrubs. 
 
 
@@ -617,6 +619,7 @@ log_file_location="/volume1/web/logging/notifications"
 log_file_name="disk_scrubbing_log.txt"
 email_content_file_name="disk_scrubbing_email.txt"
 enable_email_notifications=1
+force_sync_status_display=0
 ```
 
 The first three lines control to whom the notification email will be sent, who the email is sent from, and what the email's title will be. 
@@ -627,7 +630,9 @@ The next line ```log_file_location``` is a directory where log files and temp fi
 
 The next line ```email_content_file_name``` is file name for the contents which will be emailed out. 
 
-The final line ```enable_email_notifications``` allows to disable email notifications entirely. This is not recommended as the status script will not be able to notify you. This can be useful in testing and debugging however. 
+The next line ```enable_email_notifications``` allows to disable email notifications entirely. This is not recommended as the status script will not be able to notify you. This can be useful in testing and debugging however. 
+
+the final line ```force_sync_status_display``` allows the script to send RAID srubbing statis if a RAID1 or RAID0 array is eigther being created or repaired. 
 
 
 
