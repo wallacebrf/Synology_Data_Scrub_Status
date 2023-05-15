@@ -1,5 +1,5 @@
 #!/bin/bash
-version="2.8 4/17/2023"
+version="2.9 5/15/2023"
 #By Brian Wallace
 
 ##############################################################
@@ -13,6 +13,7 @@ version="2.8 4/17/2023"
 ##############################################################
 #Change History:
 ##############################################################
+#2.9 -  removed "no_csum" BTRFS status. this is not an actual error, but will be non-zero due to 1.) folders or files with checksums NOT enabled, or BTRFS free space cache that is by default no checksumed. 
 #2.8 -	added ability to force the script to display resyncing status of "unsupported" arrays like RAID1, RAID0, and RAID10. This is useful if an unsupported array is being created or repaired
 #2.71-	corrected typo in minimum RAID array quantity for "no raid devices found" to be triggered
 #2.7 -	added handling of no BTRFS volumes or no RAID devices 
@@ -50,8 +51,8 @@ version="2.8 4/17/2023"
 ##############################################################
 to_email_address="email@email.com"
 from_email_address="email@email.com"
-subject="NAS Name - Disk Scrubbing Status"
-use_mail_plus=0
+subject="Nas Name - Disk Scrubbing Status"
+use_mail_plus=1
 log_file_location="/volume1/web/logging/notifications"
 log_file_name="disk_scrubbing_log.txt"
 email_content_file_name="disk_scrubbing_email.txt"
@@ -463,7 +464,7 @@ else
 				read_errors=${explode[30]}
 				csum_errors=${explode[32]}
 				verify_errors=${explode[34]}
-				nocsum_errors=${explode[36]}
+				#nocsum_errors=${explode[36]}
 				csum_discards=${explode[38]}
 				super_errors=${explode[40]}
 				malloc_errors=${explode[42]}
@@ -486,14 +487,14 @@ else
 				echo "BTRFS Scrubbing Percent Complete:  $percent_scrubbed%" |& tee -a "$log_file_location/$log_file_name"
 								
 				#do we have any errors? if there are no errors, show that, if there are errors then print the detailed error information 
-				if [ "$read_errors" = 0 ] && [ "$csum_errors" = 0 ] && [ "$verify_errors" = 0 ] && [ "$nocsum_errors" = 0 ] && [ "$csum_discards" = 0 ] && [ "$super_errors" = 0 ] && [ "$malloc_errors" = 0 ] && [ "$uncorrectable_errors" = 0 ] && [ "$unverifed_errors" = 0 ] && [ "$corrected_errors" = 0 ]; then
+				if [ "$read_errors" = 0 ] && [ "$csum_errors" = 0 ] && [ "$verify_errors" = 0 ] && [ "$csum_discards" = 0 ] && [ "$super_errors" = 0 ] && [ "$malloc_errors" = 0 ] && [ "$uncorrectable_errors" = 0 ] && [ "$unverifed_errors" = 0 ] && [ "$corrected_errors" = 0 ]; then
 					echo -e "BTRFS Scrubbing Errors: 0\n\n" |& tee -a "$log_file_location/$log_file_name"
 				else
 					echo "One or more errors have occurred during scrubbing, see details below:" |& tee -a "$log_file_location/$log_file_name"
 					echo "--> Read Errors: $read_errors" |& tee -a "$log_file_location/$log_file_name"
 					echo "--> cSUM Errors: $csum_errors" |& tee -a "$log_file_location/$log_file_name"
 					echo "--> Verify Errors: $verify_errors" |& tee -a "$log_file_location/$log_file_name"
-					echo "--> nocSUM Errors: $nocsum_errors" |& tee -a "$log_file_location/$log_file_name"
+					#echo "--> nocSUM Errors: $nocsum_errors" |& tee -a "$log_file_location/$log_file_name"
 					echo "--> cSUM Discards: $csum_discards" |& tee -a "$log_file_location/$log_file_name"
 					echo "--> Super Errors: $super_errors" |& tee -a "$log_file_location/$log_file_name"
 					echo "--> Malloc Errors: $malloc_errors" |& tee -a "$log_file_location/$log_file_name"
@@ -728,40 +729,3 @@ else
 		rm "$log_file_location/script_percent_tracking.txt"
 	fi
 fi
-
-
-#	Mon Apr 17 10:40:02 2023
-#	Script Version: 2.8 4/17/2023
-#	---------------------------------
-#	BTRFS SCRUBBING DETAILS
-#	---------------------------------
-#
-#	"/volume1" is not performing BTRFS scrubbing --> last scrub has never been performed.
-#
-#
-#	---------------------------------
-#	RAID SCRUBBING DETAILS
-#	---------------------------------
-#
-#	RAID device "md2" [ Raid Type: raid5 ] is not performing RAID scrubbing
-#
-#
-#	RAID device "md3" [ Raid Type: raid1 ] Re-Syncing Active. NOTE: This is not a normal scrub but is an unsupported [RAID0, RAID1, or RAID10] array either being created or repaired
-#
-#
-#	RAID Scrubbing Progress: [===================>.] 96.4%
-#	RAID Scrubbing Blocks Processed: (466368128/483664384)
-#	RAID Scrubbing Estimated Time Remaining: 1.0min
-#	RAID Scrubbing Processing Speed: 281461K/sec
-#
-#
-#	---------------------------------
-#	OVERALL SCRUBBING DETAILS
-#	---------------------------------
-#
-#	The option to force Sync Status Display has been chosen, this is used if an array has just been created and email status is desired.
-#	Note BTRFS scrubbing is not performed during this time.
-#
-#
-#	Overall Scrub Percent: [======================================..] 96%
-#	Total Scrubbing Runtime: 1 minutes and 47 seconds
