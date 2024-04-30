@@ -521,112 +521,95 @@ echo -e "---------------------------------" |& tee -a "$log_file_location/$log_f
 echo -e "RAID SCRUBBING DETAILS" |& tee -a "$log_file_location/$log_file_name"
 echo -e "---------------------------------\n" |& tee -a "$log_file_location/$log_file_name"
 if [ $num_raid_devices -lt 3 ]; then
-	echo -e "No RAID devices found, RAID scrubbing will be skipped \n" |& tee -a "$log_file_location/$log_file_name"
+    echo -e "No RAID devices found, RAID scrubbing will be skipped \n" |& tee -a "$log_file_location/$log_file_name"
 else
-	for xx in "${!raid_device[@]}"; do
-		if [[ ${raid_device[$xx]} != "/dev/md0" && ${raid_device[$xx]} != "/dev/md1" ]]; then #on a Synology system, these are system level partitions for DSM and cache, they are not part of data scrubbing and so will be skipped. 
-			
-			skip_device=0
-			raid_type=$(mdadm --detail ${raid_device[$xx]} | grep "Raid Level")
-			#returns for example: "Raid Level : raid5"
-			
-			if [ $force_sync_status_display -eq 1 ]; then #if a user is creating a new volume and wishes to see the resyncing status, enable this setting to allow to see the percentage complete
-				skip_device=0
-			else
-				if [[ ${raid_type#*Raid Level : } == "raid1" || ${raid_type#*Raid Level : } == "raid0" || ${raid_type#*Raid Level : } == "raid10" ]]; then
-					echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] does not support RAID scrubbing and will be skipped.\n\n" |& tee -a "$log_file_location/$log_file_name"
-					let unsupported_raid_devices=unsupported_raid_devices+1 #remove the device from the number of RAID devices that will be scrubbed to ensure the percentage calculation is correct. 
-					skip_device=1
-				fi
-			fi
-			
-			if [ $skip_device -eq 0 ]; then
-				
-				#Synology only support scrubbing of RAID5 and RAID6 and RAIDF1 partitions. Even when using SHR1/SHR2, the system behind the scenes uses combinations of RAID5/6 and RAID0/1 to make the most use of the available disk space. The RAID0/1 partitions are not processed when DSM scrubs an SHR1/SHR2 volume, only the RAID5/6 parts are. 
-				
-				raid_state=$(mdadm --detail ${raid_device[$xx]} | grep "State :") #get the state because if the state is degraded or recovering, then BTRFS scrubbing is not going to occur, and so we can skip BTRFS details when calculating overall progress percentage at the end of this script. 
-				#returns for example: "State : clean"
-				raid_state=${raid_state#*State : } #removes everything but the actual status
-				
-				if [[ $(echo "$raid_state" | grep "degraded") != "" || $(echo "$raid_state" | grep "recovering") != "" || $(echo "$raid_state" | grep "crashed") != "" ]]; then
-					raid_repairing=1 #if we are degraded/recovering, this is not a normal scrub it is probably due to array just being made or the array rebuilding, so the system will not be focusing on BTRFS, so lets skip BTRFS volumes
-					echo -n "${raid_device[$xx]#*/dev/}" > "$log_file_location/script_percent_tracking.txt"
-					script_percent_tracking="${raid_device[$xx]#*/dev/}"
-					echo -e "WARNING, RAID ARRAY \"${raid_device[$xx]#*/dev/}\" STATUS IS: \"${raid_state^^}\"\n\n" |& tee -a "$log_file_location/$log_file_name"
-				fi
-				
-				volume_details=$(grep -E -A 2 ${raid_device[$xx]#*/dev/} /proc/mdstat | grep "finish=") #get mdRAID status, and search for the text "finish=" which is only found if a scrub is active
-				#returns  "[===============>.....]  resync = 77.8% (6078469488/7803302208) finish=165.8min speed=173334K/sec"
-				
-				if [[ $volume_details == "" ]]; then #if no scrubbing is active, then the grep commands will return no text
-					echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] is not performing RAID scrubbing\n\n" |& tee -a "$log_file_location/$log_file_name"
-				else
-					RAID_scrub_active=1
-					
-					#to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
-					#check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
-					if [ -r "$log_file_location/script_percent_tracking.txt" ]; then 
-						read script_percent_tracking < "$log_file_location/script_percent_tracking.txt"
-					else
-						echo -n "${raid_device[$xx]#*/dev/}" > "$log_file_location/script_percent_tracking.txt"
-						script_percent_tracking="${raid_device[$xx]#*/dev/}"
-					fi
-					
-					
-					#determine if the current scrubbing device has already been detected in a previous execution of the script
-					if [[ "$script_percent_tracking" != *"${raid_device[$xx]#*/dev/}"* ]]; then
-						#if the current scrubbing device is not in the log, add it. the comma at the end will be used to count the number of completed items later. 
-						echo -n ",${raid_device[$xx]#*/dev/}" >> "$log_file_location/script_percent_tracking.txt"
-						script_percent_tracking=$script_percent_tracking",${raid_device[$xx]#*/dev/}"
-					fi
-					
-					scrub_complete=$(echo "${script_percent_tracking}" | awk -F"," '{print NF-1}') #count the number of commas minus 1 to see how many devices have previously completed their scrubbing. 
-					
-					
-					explode=(`echo $volume_details | sed 's/)/\n/g'`) #explode on the string
-					#returns 7x items in an array
-					#	0.)"[===============>.....]"
-					#	1.)"resync"
-					#	2.)"=" 
-					#	3.)"78.3%"
-					#	4.)"(6117200640/7803302208"
-					#	5.)"finish=168.5min"
-					#	6.)"speed=166748K/sec"
-					explode2=(`echo ${explode[5]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "finish=168.5min" and explode on "=" to extract the "finish" time
-					#returns two items in an array
-					#	0.)"finish"
-					#	1.)"168.5min"
-					explode3=(`echo ${explode[6]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "speed=166748K/sec" and explode on "=" to extract the "speed"
-					#returns two items in an array
-					#	0.)"speed"
-					#	1.)"166748K/sec"
-					
-					percent_bar=${explode[0]}
-					percent=${explode[3]}
-					blocks=${explode[4]}
-					finish=${explode2[1]}
-					speed=${explode3[1]}
+    for xx in "${!raid_device[@]}"; do
+        if [[ ${raid_device[$xx]} != "/dev/md0" && ${raid_device[$xx]} != "/dev/md1" ]]; then #on a Synology system, these are system level partitions for DSM and cache, they are not part of data scrubbing and so will be skipped. 
+            
+            skip_device=0
+            raid_type=$(mdadm --detail ${raid_device[$xx]} | grep "Raid Level")
+            raid_state=$(mdadm --detail ${raid_device[$xx]} | grep "State :") # Get the RAID state
+       
+            if [ $force_sync_status_display -eq 1 ]; then #if a user is creating a new volume and wishes to see the resyncing status, enable this setting to allow to see the percentage complete
+                skip_device=0
+            else
+                if [[ ${raid_type#*Raid Level : } == "raid1" || ${raid_type#*Raid Level : } == "raid0" || ${raid_type#*Raid Level : } == "raid10" ]]; then
+                    echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] does not support RAID scrubbing and will be skipped.\n\n" |& tee -a "$log_file_location/$log_file_name"
+                    let unsupported_raid_devices=unsupported_raid_devices+1 #remove the device from the number of RAID devices that will be scrubbed to ensure the percentage calculation is correct. 
+                    skip_device=1
+                fi
+            fi
+            
+            if [ $skip_device -eq 0 ]; then
+                
+                #Synology only support scrubbing of RAID5 and RAID6 and RAIDF1 partitions. Even when using SHR1/SHR2, the system behind the scenes uses combinations of RAID5/6 and RAID0/1 to make the most use of the available disk space. The RAID0/1 partitions are not processed when DSM scrubs an SHR1/SHR2 volume, only the RAID5/6 parts are. 
+                
+                raid_state=${raid_state#*State : } #removes everything but the actual status
+                
+                if [[ $(echo "$raid_state" | grep "degraded") != "" || $(echo "$raid_state" | grep "recovering") != "" || $(echo "$raid_state" | grep "crashed") != "" ]]; then
+                    raid_repairing=1 #if we are degraded/recovering, this is not a normal scrub it is probably due to array just being made or the array rebuilding, so the system will not be focusing on BTRFS, so lets skip BTRFS volumes
+                    echo -n "${raid_device[$xx]#*/dev/}" > "$log_file_location/script_percent_tracking.txt"
+                    script_percent_tracking="${raid_device[$xx]#*/dev/}"
+                    echo -e "WARNING, RAID ARRAY \"${raid_device[$xx]#*/dev/}\" STATUS IS: \"${raid_state^^}\"\n\n" |& tee -a "$log_file_location/$log_file_name"
+                fi
+                
+                volume_details=$(grep -E -A 2 ${raid_device[$xx]#*/dev/} /proc/mdstat | grep "finish=") #get mdRAID status, and search for the text "finish=" which is only found if a scrub is active
+                
+                if [[ $volume_details == "" ]]; then #if no scrubbing is active, then the grep commands will return no text
+                    echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } | State: ${raid_state#*State : } ] is not performing RAID scrubbing\n\n" |& tee -a "$log_file_location/$log_file_name"
+                else
+                    RAID_scrub_active=1
+                    
+                    #to keep track of number of previously completed scrub tasks completed, we will track the device names that have already been seen by the script
+                    #check if the tracking file exists, if it does read in the contents, otherwise set a default state and create the file
+                    if [ -r "$log_file_location/script_percent_tracking.txt" ]; then 
+                        read script_percent_tracking < "$log_file_location/script_percent_tracking.txt"
+                    else
+                        echo -n "${raid_device[$xx]#*/dev/}" > "$log_file_location/script_percent_tracking.txt"
+                        script_percent_tracking="${raid_device[$xx]#*/dev/}"
+                    fi
+                    
+                    
+                    #determine if the current scrubbing device has already been detected in a previous execution of the script
+                    if [[ "$script_percent_tracking" != *"${raid_device[$xx]#*/dev/}"* ]]; then
+                        #if the current scrubbing device is not in the log, add it. the comma at the end will be used to count the number of completed items later. 
+                        echo -n ",${raid_device[$xx]#*/dev/}" >> "$log_file_location/script_percent_tracking.txt"
+                        script_percent_tracking=$script_percent_tracking",${raid_device[$xx]#*/dev/}"
+                    fi
+                    
+                    scrub_complete=$(echo "${script_percent_tracking}" | awk -F"," '{print NF-1}') #count the number of commas minus 1 to see how many devices have previously completed their scrubbing. 
+                    
+                    
+                    explode=(`echo $volume_details | sed 's/)/\n/g'`) #explode on the string
+                    explode2=(`echo ${explode[5]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "finish=168.5min" and explode on "=" to extract the "finish" time
+                    explode3=(`echo ${explode[6]} | sed 's/=/\n/g'`) #take smaller portion of the exploded string "speed=166748K/sec" and explode on "=" to extract the "speed"
+                    
+                    percent_bar=${explode[0]}
+                    percent=${explode[3]}
+                    blocks=${explode[4]}
+                    finish=${explode2[1]}
+                    speed=${explode3[1]}
 
-					if [ $force_sync_status_display -eq 1 ];then
-					echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] Re-Syncing Active. NOTE: This is not a normal scrub but is an unsupported [RAID0, RAID1, or RAID10] array either being created or repaired\n\n" |& tee -a "$log_file_location/$log_file_name"
-					else
-						echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } ] scrubbing Active.\n\n" |& tee -a "$log_file_location/$log_file_name"
-					fi
-					echo "RAID Scrubbing Progress: $percent_bar $percent" |& tee -a "$log_file_location/$log_file_name"
-					echo "RAID Scrubbing Blocks Processed: $blocks)" |& tee -a "$log_file_location/$log_file_name"
-					echo "RAID Scrubbing Estimated Time Remaining: $finish" |& tee -a "$log_file_location/$log_file_name"
-					echo -e "RAID Scrubbing Processing Speed: $speed\n\n" |& tee -a "$log_file_location/$log_file_name"
-					
-					if [ $scrub_complete -eq 0 ];then
-						script_percent_tracking=${script_percent_tracking/%${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
-					else
-						script_percent_tracking=${script_percent_tracking/%,${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
-					fi
-				fi	
-			fi
-			
-		fi
-	done
+                    if [ $force_sync_status_display -eq 1 ];then
+                    echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } | State: ${raid_state#*State : } ] Re-Syncing Active. NOTE: This is not a normal scrub but is an unsupported [RAID0, RAID1, or RAID10] array either being created or repaired\n\n" |& tee -a "$log_file_location/$log_file_name"
+                    else
+                        echo -e "RAID device \"${raid_device[$xx]#*/dev/}\" [ Raid Type: ${raid_type#*Raid Level : } | State: ${raid_state#*State : } ] scrubbing Active.\n\n" |& tee -a "$log_file_location/$log_file_name"
+                    fi
+                    echo "RAID Scrubbing Progress: $percent_bar $percent" |& tee -a "$log_file_location/$log_file_name"
+                    echo "RAID Scrubbing Blocks Processed: $blocks)" |& tee -a "$log_file_location/$log_file_name"
+                    echo "RAID Scrubbing Estimated Time Remaining: $finish" |& tee -a "$log_file_location/$log_file_name"
+                    echo -e "RAID Scrubbing Processing Speed: $speed\n\n" |& tee -a "$log_file_location/$log_file_name"
+                    
+                    if [ $scrub_complete -eq 0 ];then
+                        script_percent_tracking=${script_percent_tracking/%${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
+                    else
+                        script_percent_tracking=${script_percent_tracking/%,${raid_device[$xx]#*/dev/}} #remove the current device from the list as it is still in progress and has not completed. 
+                    fi
+                fi    
+            fi
+            
+        fi
+    done
 fi
 
 function displaytime {
