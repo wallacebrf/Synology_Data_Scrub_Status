@@ -260,7 +260,7 @@ else
 			no_stats_available=0 #initialize variable. if the BTRFS volume has never previously undergone a SCRUB, then the results from the "btrfs scrub status" command will be different. we need to capture this so the script can act accordingly. 
 
 			#need to convert the "/dev/mapper/cachedev_x" device name to a volume name like "/volume1"
-			volume_number=$(df | grep ${btrfs_volumes[$xx]#*path })
+			volume_number=$(df | grep ${btrfs_volumes[$xx]#*path } | grep -v "@")
 			#returns: /dev/mapper/cachedev_0   14981718344  5599142460  9382575884  38% /volume1
 			volume_number=${volume_number#*% } #only keep everything after the "% " to keep only volume number
 			
